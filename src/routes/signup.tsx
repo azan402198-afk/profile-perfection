@@ -55,6 +55,10 @@ function SignupPage() {
     if (!form.name.trim()) return volt.complain("I still don't know your name, hungry stranger.");
     if (!EMAIL_RE.test(form.email.trim())) return volt.complain("That email isn't a real delivery address.");
     if (!form.password) return volt.complain("A password would help. Even a small one.");
+    if (form.password.length < 8)
+      return volt.complain("Passwords need at least 8 characters — keep your account safe.");
+    if (!/[a-zA-Z]/.test(form.password) || !/[0-9]/.test(form.password))
+      return volt.complain("Mix in at least one letter and one number.");
 
     setIsSubmitting(true);
     // Keep the pending animation on screen long enough to read.
@@ -278,7 +282,7 @@ function SignupPage() {
             <input
               type={showPass ? "text" : "password"}
               value={form.password}
-              placeholder="Create a password"
+              placeholder="Create a password (min 8 characters)"
               className="auth-field pr-12"
               autoComplete="new-password"
               onFocus={() => {
