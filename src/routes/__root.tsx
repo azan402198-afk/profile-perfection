@@ -17,6 +17,7 @@ import { CursorRobot } from "@/components/kennedy/CursorRobot";
 import { CartDock } from "@/components/kennedy/CartDock";
 import { SoundProvider } from "@/components/kennedy/SoundProvider";
 import { SiteLoader } from "@/components/kennedy/SiteLoader";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
 
 
 function NotFoundComponent() {
@@ -166,6 +167,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <ConnectionBanner />
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       {!isConsole ? (
