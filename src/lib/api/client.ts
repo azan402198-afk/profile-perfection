@@ -62,15 +62,59 @@ function csrfToken(): string | null {
 export class ApiError extends Error {
   status: number;
   fields: Record<string, string[]>;
-  constructor(status: number, message: string, fields: Record<string, string[]> = {}) {
+  /** True when the request never reached the server (offline, DNS, CORS, cold-start timeout). */
+  isNetwork: boolean;
+  constructor(
+    status: number,
+    message: string,
+    fields: Record<string, string[]> = {},
+    isNetwork = false,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.fields = fields;
+    this.isNetwork = isNetwork;
   }
 }
 
+/**
+ * Friendly copy for DRF field errors so users never read
+ * `username: this field is required`.
+ */
+const FIELD_LABELS: Record<string, string> = {
+  username: "Username",
+  password: "Password",
+  email: "Email",
+  phone: "Phone number",
+  full_name: "Full name",
+  requested_role: "Account type",
+  non_field_errors: "",
+  detail: "",
+};
+
+export function friendlyFieldMessage(fields: Record<string, string[]>): string {
+  return Object.entries(fields)
+    .map(([key, values]) => {
+      const label = FIELD_LABELS[key] ?? key.replace(/_/g, " ");
+      const raw = values.join(" ");
+      const text = /this field (is required|may not be blank)/i.test(raw)
+        ? `is required`
+        : /already exists/i.test(raw)
+          ? `is already taken`
+          : raw.replace(/^This field /i, "");
+      return label ? `${label} ${text}`.replace(/\s+/g, " ").trim() : text;
+    })
+    .join(" ");
+}
+
+/** Cold-start hint: Railway free tier sleeps, so the first call can take 10-30s. */
+export const API_SLOW_EVENT = "kmg-api-slow";
+export const API_SLOW_DONE_EVENT = "kmg-api-slow-done";
+const SLOW_AFTER_MS = 3500;
+
 type Options = { query?: Record<string, string | number | boolean | undefined>; signal?: AbortSignal };
+
 
 // ─── Silent refresh helpers ───────────────────────────────────────────────────
 
