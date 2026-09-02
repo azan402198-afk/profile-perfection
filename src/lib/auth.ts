@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, isBackendConfigured, tokens } from "@/lib/api/client";
+import { ApiError, api, isBackendConfigured, tokens } from "@/lib/api/client";
 import { AUTH } from "@/lib/api/endpoints";
 
 export type AccountRole = "customer" | "staff" | "rider" | "admin" | "kitchen";
@@ -101,10 +101,8 @@ type BackendSignupResponse = {
   status?: string;
 };
 
-export async function signIn(usernameOrEmail: string, pass: string, role?: AccountRole): Promise<AuthAccount> {
-  if (!isBackendConfigured()) {
-    return signInLocal(usernameOrEmail, role);
-  }
+export async function signIn(usernameOrEmail: string, pass: string): Promise<AuthAccount> {
+  assertBackend();
 
   const res = await api.post<BackendLoginResponse>(AUTH.login, {
     username: usernameOrEmail.trim(),
@@ -114,18 +112,27 @@ export async function signIn(usernameOrEmail: string, pass: string, role?: Accou
   tokens.set(res.access, res.refresh);
 
   const u = res.user;
-  const rawRole = (u?.role || ((u as { is_superuser?: boolean } | undefined)?.is_superuser ? "admin" : role) || "customer") as AccountRole;
+  // The role ALWAYS comes from the backend — never from a UI toggle.
   const account: AuthAccount = {
     id: u?.id ? String(u.id) : `user-${Date.now()}`,
     name: u?.full_name || u?.username || usernameOrEmail.split("@")[0] || "User",
     email: u?.email || (usernameOrEmail.includes("@") ? usernameOrEmail : ""),
     phone: "",
-    role: rawRole,
+    role: (u?.role || ((u as { is_superuser?: boolean } | undefined)?.is_superuser ? "admin" : "customer")) as AccountRole,
     status: "active",
     createdAt: new Date().toISOString(),
   };
 
   publish(account);
+
+  // Confirm the role against the authenticated backend profile, so a tampered
+  // cached role can never survive.
+  const verified = await verifyRole({ force: true });
+  if (verified && verified !== account.role) {
+    const corrected = { ...account, role: verified };
+    publish(corrected);
+    return corrected;
+  }
   return account;
 }
 
@@ -136,9 +143,7 @@ export async function signUp(input: {
   password: string;
   role: AccountRole;
 }): Promise<AuthAccount> {
-  if (!isBackendConfigured()) {
-    return signUpLocal(input);
-  }
+  assertBackend();
 
   const rawName = input.name.trim();
   const cleanUsername = rawName.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_@.+-]/g, "") || input.email.split("@")[0];
@@ -167,53 +172,74 @@ export async function signUp(input: {
     return pendingAccount;
   }
 
-  return signIn(cleanUsername, input.password, input.role);
+  return signIn(cleanUsername, input.password);
 }
 
 
+/**
+ * Sign out: blacklist the refresh token server-side (SimpleJWT) *before*
+ * clearing local state, so a stolen token can't be replayed for 7 days.
+ * Fire-and-forget — local state is cleared either way.
+ */
 export function signOut() {
+  const refresh = tokens.refresh();
+  if (isBackendConfigured() && refresh) {
+    void api.post(AUTH.logout, { refresh }).catch(() => {
+      /* endpoint missing or offline — local purge still happens */
+    });
+  }
+  clearVerifiedRole();
   publish(null);
 }
 
-export function signUpLocal(input: {
-  name: string;
-  email: string;
-  phone: string;
-  role: AccountRole;
-}): AuthAccount {
-  const account: AuthAccount = {
-    id: `acc-${Date.now()}`,
-    name: input.name.trim(),
-    email: input.email.trim().toLowerCase(),
-    phone: input.phone.trim(),
-    role: input.role,
-    createdAt: new Date().toISOString(),
-  };
-  publish(account);
-  return account;
+/**
+ * Server-verified role, cached in memory for the tab session.
+ * Route guards use this instead of trusting localStorage.
+ */
+let _verifiedRole: AccountRole | null = null;
+let _verifyPromise: Promise<AccountRole | null> | null = null;
+
+export function clearVerifiedRole() {
+  _verifiedRole = null;
+  _verifyPromise = null;
 }
 
-export function signInLocal(email: string, role?: AccountRole): AuthAccount {
-  const existing = readAccount();
-  const normalized = email.trim().toLowerCase();
-  const base: AuthAccount =
-    existing && existing.email === normalized
-      ? existing
-      : {
-          id: existing?.id ?? `acc-${Date.now()}`,
-          name: existing?.name ?? normalized.split("@")[0] ?? "Guest",
-          email: normalized,
-          phone: existing?.phone ?? "",
-          role: existing?.role ?? "customer",
-          createdAt: existing?.createdAt ?? new Date().toISOString(),
-        };
-  const account: AuthAccount = { ...base, role: role ?? base.role };
-  publish(account);
-  return account;
+type MeResponse = { role?: AccountRole; user?: { role?: AccountRole }; is_superuser?: boolean };
+
+export async function verifyRole(opts: { force?: boolean } = {}): Promise<AccountRole | null> {
+  if (!isBackendConfigured() || !tokens.access()) return null;
+  if (_verifiedRole && !opts.force) return _verifiedRole;
+  if (_verifyPromise && !opts.force) return _verifyPromise;
+  _verifyPromise = (async () => {
+    try {
+      const me = await api.get<MeResponse>(AUTH.me);
+      const role = (me.role || me.user?.role || (me.is_superuser ? "admin" : undefined)) as
+        | AccountRole
+        | undefined;
+      if (role) {
+        _verifiedRole = role;
+        const cached = readAccount();
+        if (cached && cached.role !== role) publish({ ...cached, role });
+      }
+      return role ?? null;
+    } catch (err) {
+      // Offline / cold start: don't invalidate anything, fall back to cache.
+      if (err instanceof ApiError && err.isNetwork) return null;
+      throw err;
+    } finally {
+      _verifyPromise = null;
+    }
+  })();
+  return _verifyPromise;
 }
 
-export function signOutLocal() {
-  signOut();
+function assertBackend() {
+  if (!isBackendConfigured()) {
+    throw new ApiError(
+      0,
+      "This app isn't connected to its server, so sign in is unavailable. Please contact support.",
+    );
+  }
 }
 
 export function useAccount() {
