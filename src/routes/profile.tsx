@@ -728,6 +728,10 @@ function ProfilePage() {
                   )}
                 </section>
 
+                <SecurityCard verified={isEmailVerified() ?? false} />
+
+
+
                 <button
                   type="button"
                   onClick={() => void resetLocal()}
