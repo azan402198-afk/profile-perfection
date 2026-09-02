@@ -84,12 +84,20 @@ function ForgotPasswordPage() {
         <div className="space-y-4">
           <p className="rounded-xl bg-flame/10 px-4 py-3 text-[13px] font-semibold text-charcoal/80">
             If <strong className="text-charcoal">{email.trim().toLowerCase()}</strong> is registered, a
-            password reset link is on its way. The link expires shortly, so use it soon.
+            6-digit reset code is on its way. It expires in 10 minutes.
           </p>
-          <Link to="/login" className="auth-cta">
-            <span aria-hidden>🍕</span> Back to sign in
+          <Link
+            to="/reset-password"
+            search={{ email: email.trim().toLowerCase(), code: undefined }}
+            className="auth-cta"
+          >
+            <span aria-hidden>🍕</span> Enter my code
+          </Link>
+          <Link to="/login" className="block text-center font-body text-[13px] font-semibold text-charcoal/60 hover:text-flame">
+            Back to sign in
           </Link>
         </div>
+
       ) : (
         <form onSubmit={submit} className="space-y-5">
           <label className="auth-field-wrap block">

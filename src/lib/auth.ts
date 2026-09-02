@@ -202,9 +202,29 @@ let _verifyPromise: Promise<AccountRole | null> | null = null;
 export function clearVerifiedRole() {
   _verifiedRole = null;
   _verifyPromise = null;
+  _emailVerified = null;
 }
 
-type MeResponse = { role?: AccountRole; user?: { role?: AccountRole }; is_superuser?: boolean };
+/** Mirrors Django's validators: 8+ chars, at least one letter and one digit. */
+export function passwordProblem(pw: string): string | null {
+  if (pw.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw))
+    return "Password needs at least one letter and one number.";
+  return null;
+}
+
+
+type MeResponse = {
+  role?: AccountRole;
+  user?: { role?: AccountRole };
+  is_superuser?: boolean;
+  is_staff?: boolean;
+  is_email_verified?: boolean;
+};
+
+/** Last profile flags seen from `/api/profile/` (server truth, never localStorage). */
+let _emailVerified: boolean | null = null;
+export const isEmailVerified = () => _emailVerified;
 
 export async function verifyRole(opts: { force?: boolean } = {}): Promise<AccountRole | null> {
   if (!isBackendConfigured() || !tokens.access()) return null;
@@ -213,9 +233,11 @@ export async function verifyRole(opts: { force?: boolean } = {}): Promise<Accoun
   _verifyPromise = (async () => {
     try {
       const me = await api.get<MeResponse>(AUTH.me);
-      const role = (me.role || me.user?.role || (me.is_superuser ? "admin" : undefined)) as
-        | AccountRole
-        | undefined;
+      if (typeof me.is_email_verified === "boolean") _emailVerified = me.is_email_verified;
+      const role = (me.role ||
+        me.user?.role ||
+        (me.is_superuser ? "admin" : me.is_staff ? "staff" : undefined)) as AccountRole | undefined;
+
       if (role) {
         _verifiedRole = role;
         const cached = readAccount();

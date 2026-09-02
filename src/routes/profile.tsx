@@ -25,7 +25,7 @@ import {
 import { toast } from "sonner";
 
 import { getLocalUser } from "@/hooks/use-session";
-import { signOut } from "@/lib/auth";
+import { isEmailVerified, signOut } from "@/lib/auth";
 import { requireRole } from "@/lib/auth-guard";
 import {
   ORDER_STAGES,
@@ -41,6 +41,8 @@ import { fetchAssignedCaddy, type CaddyStatus } from "@/lib/caddy";
 import { ProfileBanner } from "@/components/profile/ProfileBanner";
 import { CaddyCard } from "@/components/profile/CaddyCard";
 import { OrderTracking } from "@/components/profile/OrderTracking";
+import { SecurityCard } from "@/components/profile/SecurityCard";
+
 import { useOrderTracking } from "@/hooks/use-order-tracking";
 
 export const Route = createFileRoute("/profile")({
@@ -727,6 +729,10 @@ function ProfilePage() {
                     </ul>
                   )}
                 </section>
+
+                <SecurityCard verified={isEmailVerified() ?? false} />
+
+
 
                 <button
                   type="button"
