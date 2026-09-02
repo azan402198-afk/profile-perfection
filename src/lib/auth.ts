@@ -204,7 +204,17 @@ export function clearVerifiedRole() {
   _verifyPromise = null;
 }
 
-type MeResponse = { role?: AccountRole; user?: { role?: AccountRole }; is_superuser?: boolean };
+type MeResponse = {
+  role?: AccountRole;
+  user?: { role?: AccountRole };
+  is_superuser?: boolean;
+  is_staff?: boolean;
+  is_email_verified?: boolean;
+};
+
+/** Last profile flags seen from `/api/profile/` (server truth, never localStorage). */
+let _emailVerified: boolean | null = null;
+export const isEmailVerified = () => _emailVerified;
 
 export async function verifyRole(opts: { force?: boolean } = {}): Promise<AccountRole | null> {
   if (!isBackendConfigured() || !tokens.access()) return null;
@@ -213,9 +223,11 @@ export async function verifyRole(opts: { force?: boolean } = {}): Promise<Accoun
   _verifyPromise = (async () => {
     try {
       const me = await api.get<MeResponse>(AUTH.me);
-      const role = (me.role || me.user?.role || (me.is_superuser ? "admin" : undefined)) as
-        | AccountRole
-        | undefined;
+      if (typeof me.is_email_verified === "boolean") _emailVerified = me.is_email_verified;
+      const role = (me.role ||
+        me.user?.role ||
+        (me.is_superuser ? "admin" : me.is_staff ? "staff" : undefined)) as AccountRole | undefined;
+
       if (role) {
         _verifiedRole = role;
         const cached = readAccount();
