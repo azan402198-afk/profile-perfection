@@ -202,7 +202,17 @@ let _verifyPromise: Promise<AccountRole | null> | null = null;
 export function clearVerifiedRole() {
   _verifiedRole = null;
   _verifyPromise = null;
+  _emailVerified = null;
 }
+
+/** Mirrors Django's validators: 8+ chars, at least one letter and one digit. */
+export function passwordProblem(pw: string): string | null {
+  if (pw.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw))
+    return "Password needs at least one letter and one number.";
+  return null;
+}
+
 
 type MeResponse = {
   role?: AccountRole;
