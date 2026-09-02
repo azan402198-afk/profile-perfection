@@ -26,6 +26,7 @@ import { toast } from "sonner";
 
 import { getLocalUser } from "@/hooks/use-session";
 import { signOut } from "@/lib/auth";
+import { requireRole } from "@/lib/auth-guard";
 import {
   ORDER_STAGES,
   PAYMENTS,
@@ -43,6 +44,10 @@ import { OrderTracking } from "@/components/profile/OrderTracking";
 import { useOrderTracking } from "@/hooks/use-order-tracking";
 
 export const Route = createFileRoute("/profile")({
+  // Client-rendered + guarded before render, so the page never flashes before
+  // an unauthenticated visitor is redirected.
+  ssr: false,
+  beforeLoad: requireRole(["customer"]),
   head: () => ({
     meta: [
       { title: "My Account & Order Tracking — Kennedy Moon Grill" },
@@ -101,19 +106,9 @@ function ProfilePage() {
   const likes = useLikes();
 
   useEffect(() => {
+    // Access + role are already enforced by the route guard (beforeLoad).
     const local = getLocalUser();
-    if (!local) {
-      void navigate({ to: "/login", replace: true });
-      return;
-    }
-    if (local.role === "admin" || local.role === "staff" || local.role === "kitchen") {
-      void navigate({ to: "/admin", replace: true });
-      return;
-    }
-    if (local.role === "rider") {
-      void navigate({ to: "/rider", replace: true });
-      return;
-    }
+    if (!local) return;
     setUserId(local.id);
     setEmail(local.email);
     setJoined(local.created_at);
