@@ -41,7 +41,10 @@ export function SecurityCard({ verified }: { verified?: boolean }) {
 
   async function verifyOtp(e: React.FormEvent) {
     e.preventDefault();
-    if (otp.trim().length !== 6) return toast.error("Enter the 6-digit code.");
+    if (otp.trim().length !== 6) {
+      toast.error("Enter the 6-digit code.");
+      return;
+    }
     setOtpBusy(true);
     try {
       await api.post(AUTH.verifyOtp, { code: otp.trim() });
@@ -57,10 +60,14 @@ export function SecurityCard({ verified }: { verified?: boolean }) {
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
-    if (!current) return toast.error("Enter your current password.");
-    const problem = passwordProblem(next);
-    if (problem) return toast.error(problem);
-    if (next !== confirm) return toast.error("Both new passwords must match.");
+    const complaint =
+      (!current && "Enter your current password.") ||
+      passwordProblem(next) ||
+      (next !== confirm && "Both new passwords must match.");
+    if (complaint) {
+      toast.error(complaint);
+      return;
+    }
     setPwBusy(true);
     try {
       await api.post(PROFILE.changePassword, { current_password: current, new_password: next });
