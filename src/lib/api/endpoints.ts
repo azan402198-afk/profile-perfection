@@ -35,8 +35,11 @@ export const PROFILE = {
   addresses: "/addresses/",
   addressDetail: (id: number | string) => `/addresses/${id}/`,
   setDefaultAddress: (id: number | string) => `/addresses/${id}/set-default/`,
+  /** POST {current_password, new_password} -> 200 */
+  changePassword: "/profile/change-password/",
   /** Active rider for current customer order */
   activeRider: "/orders/active-rider/",
+
 } as const;
 
 export const MENU = {
