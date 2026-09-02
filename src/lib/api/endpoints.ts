@@ -15,9 +15,16 @@ export const AUTH = {
   logout: "/auth/logout/",
   /** GET -> Profile data (reuses /api/profile/ to avoid redundant endpoints) */
   me: "/profile/",
-  /** POST {email} -> 204 (optional) */
+  /** POST {email} -> 204 always (never leaks whether the account exists) */
   passwordReset: "/auth/password-reset/",
+  /** POST {email, code, new_password} -> 200 */
+  passwordResetConfirm: "/auth/password-reset-confirm/",
+  /** POST -> 6-digit OTP emailed to the signed-in user */
+  sendOtp: "/auth/send-otp/",
+  /** POST {code} -> marks profile.is_email_verified = true */
+  verifyOtp: "/auth/verify-otp/",
 } as const;
+
 
 export const PROFILE = {
   /** GET -> Profile */
