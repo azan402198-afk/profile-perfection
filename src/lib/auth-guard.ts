@@ -1,13 +1,15 @@
 /**
  * Route guards for the dashboards (/profile, /admin, /rider).
  *
- * BACKEND: today the identity comes from localStorage (`src/lib/auth.ts`).
- * When Django is wired, replace `readAccount()` with a cached `AUTH.me` read
- * (see src/lib/api/endpoints.ts) — the guard shape below does not change.
+ * The cached account in localStorage is only used for the *instant* redirect
+ * (so nothing flashes). The authoritative role is then read from the backend
+ * (`AUTH.me`) via `verifyRole()`, so editing localStorage in DevTools can no
+ * longer unlock an admin UI. If the backend is unreachable (Railway cold start)
+ * we keep the cached role rather than logging people out.
  */
 import { redirect } from "@tanstack/react-router";
 
-import { ROLE_HOME, readAccount, type AccountRole } from "@/lib/auth";
+import { ROLE_HOME, readAccount, verifyRole, type AccountRole } from "@/lib/auth";
 
 /** Where the user was heading, so login can bounce them straight back. */
 export type RedirectSearch = { redirect?: string };
@@ -19,7 +21,7 @@ export const validateRedirectSearch = (search: Record<string, unknown>): Redirec
 };
 
 export function requireRole(allowed: AccountRole[]) {
-  return ({ location }: { location: { href: string } }) => {
+  return async ({ location }: { location: { href: string } }) => {
     // These routes render client-side (ssr: false), so localStorage is safe.
     if (typeof window === "undefined") return;
 
@@ -27,8 +29,18 @@ export function requireRole(allowed: AccountRole[]) {
     if (!account) {
       throw redirect({ to: "/login", search: { redirect: location.href } });
     }
-    if (!allowed.includes(account.role)) {
-      throw redirect({ to: ROLE_HOME[account.role] });
+
+    // Server-verified role wins; cached role is the offline fallback.
+    let role: AccountRole = account.role;
+    try {
+      const verified = await verifyRole();
+      if (verified) role = verified;
+    } catch {
+      throw redirect({ to: "/login", search: { redirect: location.href } });
+    }
+
+    if (!allowed.includes(role)) {
+      throw redirect({ to: ROLE_HOME[role] ?? "/" });
     }
   };
 }
