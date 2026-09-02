@@ -1,13 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { motion } from "framer-motion";
-import { Bike, Crown, Eye, EyeOff, Lock, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 import { VoltScene, VoltStrength } from "@/components/auth/chef-volt";
 import { EMAIL_RE, pickLine, useChefVolt } from "@/hooks/use-chef-volt";
-import { ROLE_COPY, ROLE_HOME, signIn, type AccountRole } from "@/lib/auth";
-import { ApiError } from "@/lib/api/client";
+import { ROLE_HOME, signIn } from "@/lib/auth";
+import { API_SLOW_DONE_EVENT, API_SLOW_EVENT, ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/login")({
@@ -31,21 +30,26 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
-const ROLES: { key: AccountRole; icon: typeof UserRound }[] = [
-  { key: "customer", icon: UserRound },
-  { key: "admin", icon: ShieldCheck },
-  { key: "staff", icon: Crown },
-  { key: "rider", icon: Bike },
-];
-
 function LoginPage() {
   const navigate = useNavigate();
   const volt = useChefVolt("Welcome back — the charcoal is already glowing.");
-  const [role, setRole] = useState<AccountRole>("customer");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isWaking, setIsWaking] = useState(false);
+
+  // Railway free tier sleeps: the first request can take 10-30s. Show it.
+  useEffect(() => {
+    const slow = () => setIsWaking(true);
+    const done = () => setIsWaking(false);
+    window.addEventListener(API_SLOW_EVENT, slow);
+    window.addEventListener(API_SLOW_DONE_EVENT, done);
+    return () => {
+      window.removeEventListener(API_SLOW_EVENT, slow);
+      window.removeEventListener(API_SLOW_DONE_EVENT, done);
+    };
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,8 +68,9 @@ function LoginPage() {
     // API answers instantly.
     const minPending = new Promise((r) => setTimeout(r, 650));
     try {
-      const [account] = await Promise.all([signIn(email, pass, role), minPending]);
-      const target = ROLE_HOME[account.role] || ROLE_HOME[role] || "/profile";
+      const [account] = await Promise.all([signIn(email, pass), minPending]);
+      // Destination comes from the role the backend reported — never a UI choice.
+      const target = ROLE_HOME[account.role] || "/profile";
       volt.celebrate("Grill's hot. Welcome back to Kennedy Moon Grill!");
       toast.success(`Welcome back, ${account.name}`);
       setTimeout(() => navigate({ to: target }), 900);
@@ -78,6 +83,7 @@ function LoginPage() {
       }
       toast.error(msg);
       setIsSubmitting(false);
+      setIsWaking(false);
     }
 
   }
@@ -87,7 +93,7 @@ function LoginPage() {
       volt={volt}
       eyebrow="Welcome back"
       title="Sign in"
-      subtitle="Pick how you're arriving tonight — we'll drop you into the right console."
+      subtitle="Sign in and we'll open the console that matches your account."
       footer={
         <>
           New to the grill?{" "}
@@ -98,33 +104,6 @@ function LoginPage() {
       }
     >
       <form onSubmit={submit} className="space-y-5">
-        <div>
-          <p className="mb-2 font-display text-[10px] font-extrabold tracking-[0.2em] text-charcoal/60 uppercase">
-            Sign in as
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {ROLES.map(({ key, icon: Icon }) => (
-              <motion.button
-                key={key}
-                type="button"
-                whileTap={{ scale: 0.96 }}
-                onClick={() => {
-                  setRole(key);
-                  volt.setMoodSafe("watching");
-                  volt.say(`${ROLE_COPY[key].label} mode. Console warming up.`);
-                }}
-                className={cn("role-tile px-2 py-3 text-center", role === key && "role-tile-active")}
-              >
-                <Icon className={cn("mx-auto h-5 w-5", role === key ? "text-flame" : "text-charcoal/50")} />
-                <span className="mt-1.5 block font-display text-[10px] font-extrabold tracking-[0.12em] text-charcoal uppercase">
-                  {ROLE_COPY[key].label}
-                </span>
-              </motion.button>
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] text-charcoal/55">{ROLE_COPY[role].tagline}</p>
-        </div>
-
         <label className="auth-field-wrap block">
           <Mail className="pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-charcoal/40" />
           <input
@@ -191,6 +170,18 @@ function LoginPage() {
           <VoltStrength volt={volt} />
         </div>
 
+        {isWaking && (
+          <p className="rounded-xl bg-flame/10 px-3 py-2 text-[12px] font-semibold text-charcoal/80">
+            Waking up the kitchen… our server was asleep, this can take up to 30 seconds.
+          </p>
+        )}
+
+        <div className="text-right">
+          <Link to="/forgot-password" className="text-[12px] font-bold text-flame hover:underline">
+            Forgot password?
+          </Link>
+        </div>
+
         <button
           ref={volt.btnRef}
           type="submit"
@@ -209,11 +200,11 @@ function LoginPage() {
         >
           {isSubmitting ? <span className="btn-spinner" aria-hidden /> : <span aria-hidden>🍕</span>}
           {isSubmitting ? (
-            <span className="btn-dots">Checking your pass</span>
+            <span className="btn-dots">{isWaking ? "Waking the kitchen" : "Checking your pass"}</span>
           ) : volt.done ? (
             "Order up ✓"
           ) : (
-            `Enter ${ROLE_COPY[role].destination}`
+            "Sign in"
           )}
         </button>
       </form>
