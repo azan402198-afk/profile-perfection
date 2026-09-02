@@ -41,6 +41,8 @@ import { fetchAssignedCaddy, type CaddyStatus } from "@/lib/caddy";
 import { ProfileBanner } from "@/components/profile/ProfileBanner";
 import { CaddyCard } from "@/components/profile/CaddyCard";
 import { OrderTracking } from "@/components/profile/OrderTracking";
+import { SecurityCard } from "@/components/profile/SecurityCard";
+
 import { useOrderTracking } from "@/hooks/use-order-tracking";
 
 export const Route = createFileRoute("/profile")({
