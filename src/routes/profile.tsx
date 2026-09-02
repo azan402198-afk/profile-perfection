@@ -25,7 +25,7 @@ import {
 import { toast } from "sonner";
 
 import { getLocalUser } from "@/hooks/use-session";
-import { signOut } from "@/lib/auth";
+import { isEmailVerified, signOut } from "@/lib/auth";
 import { requireRole } from "@/lib/auth-guard";
 import {
   ORDER_STAGES,
