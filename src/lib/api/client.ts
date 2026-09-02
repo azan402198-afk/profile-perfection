@@ -152,14 +152,24 @@ async function refreshAccessToken(): Promise<string> {
   if (_refreshPromise) return _refreshPromise;
   _refreshPromise = (async () => {
     const refresh = tokens.refresh();
-    if (!refresh) throw new Error("no_refresh_token");
+    if (!refresh) throw new ApiError(401, "no_refresh_token");
     const refreshPath = normalizePath("/auth/refresh/");
-    const res = await fetch(`${API_BASE_URL}${refreshPath}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ refresh }),
-    });
-    if (!res.ok) throw new Error("refresh_failed");
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}${refreshPath}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ refresh }),
+      });
+    } catch {
+      // Server unreachable (offline / cold start) — NOT an invalid session.
+      throw new ApiError(0, OFFLINE_MESSAGE, {}, true);
+    }
+    if (!res.ok) {
+      // 5xx = backend hiccup, keep the session. 4xx = refresh token is dead.
+      if (res.status >= 500) throw new ApiError(res.status, OFFLINE_MESSAGE, {}, true);
+      throw new ApiError(res.status, "refresh_failed");
+    }
     const data = (await res.json()) as { access: string; refresh?: string };
     tokens.set(data.access, data.refresh);
     return data.access;
@@ -167,11 +177,8 @@ async function refreshAccessToken(): Promise<string> {
   return _refreshPromise;
 }
 
-function forceSignOut() {
-  tokens.clear();
-  if (typeof localStorage !== "undefined") localStorage.removeItem("kmg.auth.v1");
-  if (typeof window !== "undefined") window.dispatchEvent(new Event("kmg-auth-change"));
-}
+export const OFFLINE_MESSAGE =
+  "We can't reach the kitchen server right now. Check your connection and try again — your session is still active.";
 
 // ─── Core fetch wrapper ───────────────────────────────────────────────────────
 
@@ -183,7 +190,12 @@ async function request<T>(
   _isRetry = false,
 ): Promise<T> {
   if (!isBackendConfigured()) {
-    throw new ApiError(0, "VITE_API_BASE_URL is not set — the app is running on local demo data.");
+    // Fail loudly: a missing API base URL in production must never silently
+    // degrade into fake local accounts.
+    throw new ApiError(
+      0,
+      "This app is not connected to its server (VITE_API_BASE_URL is missing). Please contact support.",
+    );
   }
 
   // Normalize path early so all logic below uses the canonical path and so
@@ -206,13 +218,33 @@ async function request<T>(
     if (csrf) headers["X-CSRFToken"] = csrf;
   }
 
-  const res = await fetch(url.toString(), {
-    method,
-    headers,
-    credentials: AUTH_MODE === "session" ? "include" : "same-origin",
-    ...(body === undefined ? {} : { body: isForm ? (body as FormData) : JSON.stringify(body) }),
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
+  // Cold-start UX: tell the UI when a request is taking suspiciously long so it
+  // can show a "waking up the kitchen" state instead of looking frozen.
+  const slowTimer =
+    typeof window === "undefined"
+      ? null
+      : setTimeout(() => window.dispatchEvent(new Event(API_SLOW_EVENT)), SLOW_AFTER_MS);
+  const clearSlow = () => {
+    if (slowTimer) clearTimeout(slowTimer);
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(API_SLOW_DONE_EVENT));
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      method,
+      headers,
+      credentials: AUTH_MODE === "session" ? "include" : "same-origin",
+      ...(body === undefined ? {} : { body: isForm ? (body as FormData) : JSON.stringify(body) }),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  } catch (err) {
+    clearSlow();
+    if ((err as Error)?.name === "AbortError") throw err;
+    // Never sign the user out for a transport failure.
+    throw new ApiError(0, OFFLINE_MESSAGE, {}, true);
+  }
+  clearSlow();
 
   // ── Silent token refresh on 401 ─────────────────────────────────────────
   // Don't attempt a silent refresh for authentication endpoints themselves
@@ -222,7 +254,10 @@ async function request<T>(
       try {
         await refreshAccessToken();
         return request<T>(method, path, body, options, true);
-      } catch {
+      } catch (err) {
+        // Backend unreachable / 5xx during refresh: keep the session, surface a
+        // retryable error instead of a silent sign-out.
+        if (err instanceof ApiError && err.isNetwork) throw err;
         forceSignOut();
         throw new ApiError(401, "Session expired. Please sign in again.");
       }
@@ -245,13 +280,24 @@ async function request<T>(
         else if (typeof value === "string") fields[key] = [value];
       }
     });
-    const fieldMsg = Object.entries(fields)
-      .map(([k, v]) => `${k}: ${v.join(", ")}`)
-      .join(" | ");
+    const fieldMsg = friendlyFieldMessage(fields);
+    const fallback =
+      res.status === 400
+        ? "Please check the details you entered and try again."
+        : res.status === 403
+          ? "You don't have permission to do that."
+          : res.status === 404
+            ? "We couldn't find what you were looking for."
+            : res.status === 429
+              ? "Too many attempts. Please wait a minute and try again."
+              : res.status >= 500
+                ? "The kitchen server had a hiccup. Please try again in a moment."
+                : `Request failed (${res.status})`;
     throw new ApiError(
       res.status,
-      detail || (fieldMsg.length > 0 ? fieldMsg : `Request failed (${res.status})`),
+      detail || (fieldMsg.length > 0 ? fieldMsg : fallback),
       fields,
+      res.status >= 500,
     );
   }
 
