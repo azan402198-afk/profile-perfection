@@ -180,6 +180,12 @@ async function refreshAccessToken(): Promise<string> {
 export const OFFLINE_MESSAGE =
   "We can't reach the kitchen server right now. Check your connection and try again — your session is still active.";
 
+function forceSignOut() {
+  tokens.clear();
+  if (typeof localStorage !== "undefined") localStorage.removeItem("kmg.auth.v1");
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("kmg-auth-change"));
+}
+
 // ─── Core fetch wrapper ───────────────────────────────────────────────────────
 
 async function request<T>(
