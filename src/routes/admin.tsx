@@ -14,11 +14,11 @@ import { toast } from "sonner";
 
 import { ConsoleShell } from "@/components/admin/console-shell";
 import { resetDemoData, useAdmin, orderStats } from "@/lib/admin-store";
-import { readAccount, signOut, ROLE_HOME } from "@/lib/auth";
+import { readAccount, signOut, verifyRole, ROLE_HOME } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin")({
   ssr: false,
-  beforeLoad: ({ location }) => {
+  beforeLoad: async ({ location }) => {
     const account = readAccount();
     if (!account) {
       throw redirect({
@@ -26,14 +26,23 @@ export const Route = createFileRoute("/admin")({
         search: { next: location.pathname },
       });
     }
+    // Role is confirmed with the backend; the cached role is only the offline
+    // fallback, so a tampered localStorage role can't unlock this console.
+    let role = account.role;
+    try {
+      const verified = await verifyRole();
+      if (verified) role = verified;
+    } catch {
+      throw redirect({ to: "/login", search: { next: location.pathname } });
+    }
     // Block customers and direct them to their profile
-    if (account.role === "customer") {
+    if (role === "customer") {
       throw redirect({
         to: "/profile",
       });
     }
     // Block riders and direct them to the rider console
-    if (account.role === "rider") {
+    if (role === "rider") {
       throw redirect({
         to: "/rider",
       });

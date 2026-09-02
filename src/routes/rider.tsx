@@ -9,12 +9,12 @@ import { useSetRiderStatusMutation } from "@/hooks/use-order-mutations";
 import { apiSetRiderLocation } from "@/lib/api/order-mutations";
 import { isBackendConfigured } from "@/lib/api/client";
 import { captureRiderLocation } from "@/lib/rider-location";
-import { readAccount, signOut, type AuthAccount } from "@/lib/auth";
+import { readAccount, signOut, verifyRole, type AuthAccount } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/rider")({
   ssr: false,
-  beforeLoad: ({ location }) => {
+  beforeLoad: async ({ location }) => {
     const account = readAccount();
     if (!account) {
       throw redirect({
@@ -22,14 +22,22 @@ export const Route = createFileRoute("/rider")({
         search: { next: location.pathname },
       });
     }
+    // Backend-verified role (cached role is only the offline fallback).
+    let role = account.role;
+    try {
+      const verified = await verifyRole();
+      if (verified) role = verified;
+    } catch {
+      throw redirect({ to: "/login", search: { next: location.pathname } });
+    }
     // Block customers and redirect to their profile
-    if (account.role === "customer") {
+    if (role === "customer") {
       throw redirect({
         to: "/profile",
       });
     }
     // Kitchen staff redirected to admin orders
-    if (account.role === "kitchen" || account.role === "staff") {
+    if (role === "kitchen" || role === "staff") {
       throw redirect({
         to: "/admin/orders",
       });
